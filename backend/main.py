@@ -69,6 +69,10 @@ def get_encryption_key():
             return key_b64
         except Exception as e:
             logger.error(f"Invalid ENCRYPTION_KEY in environment: {e}")
+            # Fallback para desenvolvimento
+            if os.getenv('ENV') != 'production':
+                logger.warning("Using fallback encryption key for development")
+                return generate_fallback_key()
             raise ValueError("Invalid ENCRYPTION_KEY format")
     else:
         # In production, this should never happen - key should be pre-generated
@@ -77,10 +81,22 @@ def get_encryption_key():
         
         # For development only - generate a secure random key
         logger.warning("Generating temporary encryption key for development")
-        key = os.urandom(32)
-        return base64.urlsafe_b64encode(key).decode()
+        return generate_fallback_key()
 
+def generate_fallback_key():
+    """Generate fallback key for development (consistent seed for compatibility)"""
+    seed = "aws-costs-encryption-seed-2025"
+    key_bytes = seed.encode('utf-8')
+    if len(key_bytes) < 32:
+        key_bytes = key_bytes.ljust(32, b'0')
+    else:
+        key_bytes = key_bytes[:32]
+    return base64.urlsafe_b64encode(key_bytes).decode()
+
+# Initialize encryption
 ENCRYPTION_KEY = get_encryption_key()
+fernet = Fernet(ENCRYPTION_KEY)
+
 
 # Models
 class User(Base):
@@ -833,19 +849,78 @@ def generate_ai_report_pdf(report, account, agent, owner):
     return pdf_content
 
 # AWS Cost Explorer helpers
-def get_cost_explorer_client(account: AWSAccount):
+def get_cost_explorer_client(account):
     """Get Cost Explorer client for an AWS account. Note: Cost Explorer is only available in us-east-1 region."""
     try:
-        secret_key = decrypt_api_key(account.secret_access_key_encrypted)
+        logger.info(f"Creating Cost Explorer client for account ID: {account.id}")
         
-        session = boto3.Session(
-            aws_access_key_id=account.access_key_id,
-            aws_secret_access_key=secret_key,
-            region_name='us-east-1'
-        )
+        # Verificar se a chave criptografada existe
+        if not account.secret_access_key_encrypted:
+            logger.error(f"No encrypted secret key found for account {account.id}")
+            raise HTTPException(status_code=400, detail="No secret access key found for this AWS account")
         
-        return session.client('ce')
+        logger.info(f"Attempting to decrypt secret key for account {account.id}")
+        
+        # Tentar descriptografar a chave secreta
+        try:
+            secret_key = decrypt_api_key(account.secret_access_key_encrypted)
+            logger.info(f"Successfully decrypted secret key for account {account.id}")
+        except Exception as decrypt_error:
+            logger.error(f"Failed to decrypt secret key for account {account.id}: {str(decrypt_error)}")
+            logger.error(f"Decrypt error type: {type(decrypt_error).__name__}")
+            raise HTTPException(status_code=400, detail=f"Failed to decrypt secret access key: {str(decrypt_error)}")
+        
+        # Verificar se as credenciais estão válidas
+        logger.info(f"Creating boto3 session for account {account.id}")
+        
+        try:
+            session = boto3.Session(
+                aws_access_key_id=account.access_key_id,
+                aws_secret_access_key=secret_key,
+                region_name='us-east-1'
+            )
+            
+            # Testar as credenciais primeiro
+            sts_client = session.client('sts')
+            identity = sts_client.get_caller_identity()
+            logger.info(f"AWS credentials validated for account {account.id}: {identity.get('Account')}")
+            
+            # Criar o cliente Cost Explorer
+            ce_client = session.client('ce')
+            logger.info(f"Cost Explorer client created successfully for account {account.id}")
+            
+            return ce_client
+            
+        except ClientError as aws_error:
+            error_code = aws_error.response['Error']['Code']
+            error_message = aws_error.response['Error']['Message']
+            logger.error(f"AWS Error for account {account.id}: {error_code} - {error_message}")
+            
+            if error_code == 'InvalidUserID.NotFound':
+                raise HTTPException(status_code=400, detail="Invalid AWS credentials - user not found")
+            elif error_code == 'SignatureDoesNotMatch':
+                raise HTTPException(status_code=400, detail="Invalid AWS secret access key")
+            elif error_code == 'TokenRefreshRequired':
+                raise HTTPException(status_code=400, detail="AWS credentials need to be refreshed")
+            else:
+                raise HTTPException(status_code=400, detail=f"AWS Error: {error_code} - {error_message}")
+                
+        except NoCredentialsError:
+            logger.error(f"No credentials provided for account {account.id}")
+            raise HTTPException(status_code=400, detail="No AWS credentials provided")
+            
+        except Exception as session_error:
+            logger.error(f"Unexpected error creating AWS session for account {account.id}: {str(session_error)}")
+            logger.error(f"Session error type: {type(session_error).__name__}")
+            raise HTTPException(status_code=400, detail=f"Failed to create AWS session: {str(session_error)}")
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
+        logger.error(f"Unexpected error in get_cost_explorer_client for account {account.id}: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=400, detail=f"Failed to create Cost Explorer client: {str(e)}")
 
 def format_decimal_to_float(decimal_value):
@@ -2497,6 +2572,42 @@ def get_aws_accounts(db: Session = Depends(get_db), current_user: User = Depends
         created_by=account.created_by, created_at=account.created_at,
         updated_at=account.updated_at
     ) for account in accounts]
+
+@app.get("/debug/aws-accounts/{account_id}/decrypt-test")
+def debug_decrypt_test(account_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Debug endpoint para testar a descriptografia da chave secreta"""
+    account = db.query(AWSAccount).filter(AWSAccount.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="AWS account not found")
+    
+    try:
+        logger.info(f"Testing decryption for account {account_id}")
+        logger.info(f"Encrypted key exists: {bool(account.secret_access_key_encrypted)}")
+        logger.info(f"Encrypted key length: {len(account.secret_access_key_encrypted) if account.secret_access_key_encrypted else 0}")
+        
+        # Tentar descriptografar
+        secret_key = decrypt_api_key(account.secret_access_key_encrypted)
+        logger.info(f"Decryption successful, key length: {len(secret_key)}")
+        
+        # Testar credenciais AWS
+        test_result = test_aws_credentials(account.access_key_id, secret_key, account.default_region)
+        
+        return {
+            "success": True,
+            "account_id": account.id,
+            "decryption_successful": True,
+            "secret_key_length": len(secret_key),
+            "aws_test_result": test_result
+        }
+        
+    except Exception as e:
+        logger.error(f"Debug test failed: {str(e)}")
+        return {
+            "success": False,
+            "account_id": account.id,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
 
 @app.post("/aws-accounts", response_model=AWSAccountResponse)
 def create_aws_account(account_data: AWSAccountCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
