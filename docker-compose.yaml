@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: aws-costs-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: AppUser2024!Database#5621
+      MYSQL_DATABASE: aws_costs
+      MYSQL_USER: aws_user
+      MYSQL_PASSWORD: AppUser2024!Database#5621
+    command: --default-authentication-plugin=mysql_native_password --innodb-buffer-pool-size=256M
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/aws_costs.sql:/docker-entrypoint-initdb.d/01-aws-costs.sql
+    networks:
+      - aws-costs-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "aws_user", "-pAppUser2024!Database#5621"]
+      timeout: 20s
+      retries: 10
+      interval: 10s
+      start_period: 30s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aws-costs-backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=mysql+pymysql://aws_user:AppUser2024!Database#5621@mysql:3306/aws_costs
+      - JWT_SECRET=aws-costs-dashboard-secret-key-2025
+      - CORS_ORIGINS=https://butler.koombea.ai,http://localhost:3000
+      - DEBUG=false
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - aws-costs-network
+    volumes:
+      - ./backend:/app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      timeout: 10s
+      retries: 3
+      interval: 30s
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aws-costs-frontend
+    restart: unless-stopped
+    environment:
+      - REACT_APP_API_URL=https://butler.koombea.ai/api
+      - REACT_APP_VERSION=1.0.0
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - aws-costs-network
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+
+  nginx:
+    image: nginx:alpine
+    container_name: aws-costs-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/.htpasswd:/etc/nginx/.htpasswd
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - aws-costs-network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  aws-costs-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
