@@ -34,34 +34,53 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 import tempfile
+from dotenv import load_dotenv
+import secrets
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Database Configuration
-DATABASE_URL = "mysql+pymysql://aws_user:AppUser2024!Database#5621@mysql:3306/aws_costs"
+DATABASE_URL = os.getenv('DATABASE_URL')
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is required")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 # JWT Configuration
-JWT_SECRET = "aws-costs-dashboard-secret-key-2025"
+JWT_SECRET = os.getenv('JWT_SECRET')
+if not JWT_SECRET:
+    raise ValueError("JWT_SECRET environment variable is required")
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 24
+JWT_EXPIRATION_HOURS = int(os.getenv('JWT_EXPIRATION_HOURS', 24))
 
-# Encryption key for API keys - Generate a proper 32-byte key
-def generate_encryption_key():
-    seed = "aws-costs-encryption-seed-2025"
-    key_bytes = seed.encode('utf-8')
-    if len(key_bytes) < 32:
-        key_bytes = key_bytes.ljust(32, b'0')
+# Secure encryption key management
+def get_encryption_key():
+    """Get encryption key from environment or generate a secure one"""
+    key_b64 = os.getenv('ENCRYPTION_KEY')
+    if key_b64:
+        try:
+            # Validate the key
+            key = base64.urlsafe_b64decode(key_b64)
+            if len(key) != 32:
+                raise ValueError("Encryption key must be 32 bytes")
+            return key_b64
+        except Exception as e:
+            logger.error(f"Invalid ENCRYPTION_KEY in environment: {e}")
+            raise ValueError("Invalid ENCRYPTION_KEY format")
     else:
-        key_bytes = key_bytes[:32]
-    return base64.urlsafe_b64encode(key_bytes)
+        # In production, this should never happen - key should be pre-generated
+        if os.getenv('ENV') == 'production':
+            raise ValueError("ENCRYPTION_KEY environment variable is required in production")
+        
+        # For development only - generate a secure random key
+        logger.warning("Generating temporary encryption key for development")
+        key = os.urandom(32)
+        return base64.urlsafe_b64encode(key).decode()
 
-ENCRYPTION_KEY = generate_encryption_key()
-fernet = Fernet(ENCRYPTION_KEY)
+ENCRYPTION_KEY = get_encryption_key()
 
 # Models
 class User(Base):

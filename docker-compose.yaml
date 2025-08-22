@@ -32,10 +32,14 @@ services:
     container_name: aws-costs-backend
     restart: unless-stopped
     environment:
-      - DATABASE_URL=mysql+pymysql://aws_user:AppUser2024!Database#5621@mysql:3306/aws_costs
-      - JWT_SECRET=aws-costs-dashboard-secret-key-2025
+      - JWT_SECRET=${JWT_SECRET}
+      - DATABASE_URL=${DATABASE_URL}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - ENV=production
       - CORS_ORIGINS=https://butler.koombea.ai,http://localhost:3000
       - DEBUG=false
+    env_file:
+      - .env
     depends_on:
       mysql:
         condition: service_healthy
