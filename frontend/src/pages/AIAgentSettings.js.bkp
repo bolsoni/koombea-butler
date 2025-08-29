@@ -1,187 +1,174 @@
 import React, { useState, useEffect } from 'react';
 import {
   Container,
-  Typography,
-  Button,
   Card,
   CardContent,
-  Box,
-  Grid,
-  Alert,
-  LinearProgress,
-  Fade,
-  Chip,
-  IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Switch,
-  FormControlLabel,
+  Typography,
+  Button,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Alert,
+  Chip,
+  Box,
+  Fade,
+  LinearProgress,
   Tooltip,
-  InputAdornment,
-  Slider
+  Grid,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
+  Slider,
+  Switch,
+  FormControlLabel,
+  CircularProgress,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import {
   Add,
-  SmartToy,
-  Psychology,
-  Terminal,
   Edit,
   Delete,
+  SmartToy,
+  Psychology,
+  Settings,
   Star,
   StarBorder,
   Visibility,
   VisibilityOff,
+  ContentCopy,
   CheckCircle,
-  AutoAwesome
+  ErrorOutline,
+  Warning,
+  AutoAwesome,
+  Terminal,
 } from '@mui/icons-material';
 import { authService } from '../services/authService';
+import { useAuth } from '../App';
 
 const AIAgentSettings = () => {
-  const [aiAgents, setAIAgents] = useState([]);
+  const { user: currentUser } = useAuth();
+  const [aiAgents, setAiAgents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingAgent, setEditingAgent] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [agentToDelete, setAgentToDelete] = useState(null);
-  const [editingAgent, setEditingAgent] = useState(null);
-  const [formLoading, setFormLoading] = useState(false);
-  const [dialogError, setDialogError] = useState('');
-  const [showApiKey, setShowApiKey] = useState(false);
+  
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     provider: 'anthropic',
     openai_api_key: '',
     anthropic_api_key: '',
-    gemini_api_key: '',
     model: 'claude-3-5-sonnet-20241022',
     prompt_template: '',
     temperature: 0.7,
     max_tokens: 1000,
     is_active: true
   });
+  
+  const [dialogError, setDialogError] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [formLoading, setFormLoading] = useState(false);
 
   const availableModels = {
-    anthropic: [
-      { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (Recommended)' },
-      { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
-      { value: 'claude-3-sonnet-20240229', label: 'Claude 3 Sonnet' },
-      { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku' }
-    ],
     openai: [
-      { value: 'gpt-4', label: 'GPT-4' },
-      { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-      { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' }
+      { value: 'gpt-4', label: 'GPT-4 (Most Capable)' },
+      { value: 'gpt-4-turbo', label: 'GPT-4 Turbo (Fast & Capable)' },
+      { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo (Fast & Cost-Effective)' },
     ],
-    gemini: [
-      { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro (Recommended)' },
-      { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
-      { value: 'gemini-pro', label: 'Gemini Pro' }
+    anthropic: [
+      { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (Best for Analysis)' },
+      { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku (Fast & Efficient)' },
+      { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus (Most Capable)' },
     ]
   };
 
   const defaultPrompts = {
-    anthropic: `You are an AWS cost optimization expert. Analyze the following AWS resources and provide specific recommendations to reduce costs while maintaining performance and reliability.
+    openai: `You are an AWS cost optimization expert. Analyze the provided AWS resources and deliver structured, quantified recommendations to reduce costs while maintaining performance and reliability.
 
-Focus on these key areas:
-1. **Rightsizing**: Identify over-provisioned instances that can be downsized
-2. **Reserved Instances**: Recommend Reserved Instance purchases for consistent workloads
-3. **Unused Resources**: Find idle or underutilized resources that can be terminated
-4. **Storage Optimization**: Suggest more cost-effective storage classes and cleanup
-5. **Network Costs**: Identify expensive data transfer patterns and optimization opportunities
-6. **Scheduling**: Recommend start/stop schedules for non-production resources
+ANALYSIS FOCUS AREAS:
+1. RIGHTSIZING - Identify over-provisioned instances that can be downsized
+2. RESERVED INSTANCES - Recommend Reserved Instance purchases for consistent workloads  
+3. UNUSED RESOURCES - Find idle or underutilized resources that can be terminated
+4. STORAGE OPTIMIZATION - Suggest more cost-effective storage classes and cleanup
+5. NETWORK COSTS - Identify expensive data transfer patterns and optimization opportunities
+6. SCHEDULING - Recommend start/stop schedules for non-production resources
 
+OUTPUT FORMAT:
 For each recommendation, provide:
-- **Resource**: Specific AWS resource affected
-- **Current Cost**: Estimated current monthly cost
-- **Recommendation**: Specific action to take
-- **Estimated Savings**: Expected monthly savings
-- **Implementation**: How to implement the change
-- **Risk Level**: Low/Medium/High impact on operations
+
+RESOURCE: [Specific AWS resource affected]
+CURRENT COST: [Estimated current monthly cost]
+RECOMMENDATION: [Specific action to take]
+ESTIMATED SAVINGS: [Expected monthly savings]
+IMPLEMENTATION: [How to implement the change]
+RISK LEVEL: [Low/Medium/High impact on operations]
+PRIORITY: [High/Medium/Low based on savings potential]
+
+IMPORTANT: Provide clear, quantified recommendations with specific dollar amounts and concrete action steps. Focus on measurable ROI and practical implementation.
 
 AWS Resource Data: {resource_data}
 
-Provide actionable, prioritized recommendations with clear cost savings estimates.`,
-    
-    openai: `You are an AWS cost optimization expert. Analyze the provided AWS cost data and generate specific, actionable recommendations to reduce expenses while maintaining performance and reliability.
+Deliver actionable, prioritized recommendations with clear cost savings estimates and implementation steps.`,
 
-Focus Areas:
-1. **Instance Optimization**: Identify oversized instances that can be rightsized
-2. **Reserved Capacity**: Recommend Reserved Instances or Savings Plans
-3. **Unused Resources**: Find and suggest removal of idle resources
-4. **Storage Efficiency**: Recommend appropriate storage classes and lifecycle policies
-5. **Data Transfer**: Optimize network costs and data transfer patterns
-6. **Automation**: Suggest scheduling for non-production workloads
+    anthropic: `You are a seasoned AWS cost optimization consultant with deep expertise in cloud financial management. Analyze the provided AWS resource data and deliver comprehensive, strategic recommendations that balance cost reduction with operational excellence.
 
-For each recommendation, include:
-- **Target Resource**: Specific AWS service/resource
-- **Current Monthly Cost**: Current spending
-- **Recommended Action**: Specific steps to take
-- **Projected Savings**: Monthly savings estimate
-- **Implementation Guide**: How to execute
-- **Risk Assessment**: Impact on operations
+COMPREHENSIVE ANALYSIS APPROACH:
 
-Data: {resource_data}
+FOCUS AREAS FOR OPTIMIZATION:
+1. RIGHTSIZING ANALYSIS - Examine usage patterns and identify over-provisioned instances
+2. RESERVED INSTANCE STRATEGY - Evaluate long-term workload patterns for RI opportunities  
+3. RESOURCE UTILIZATION REVIEW - Locate idle, underutilized, or forgotten resources
+4. STORAGE ARCHITECTURE OPTIMIZATION - Recommend appropriate storage classes and lifecycle policies
+5. NETWORK COST REDUCTION - Analyze data transfer patterns and suggest architectural improvements
+6. OPERATIONAL SCHEDULING - Identify non-production workloads for automated start/stop schedules
 
-Provide clear, prioritized recommendations with quantified savings.`,
+RECOMMENDATION STRUCTURE:
+Present each optimization opportunity with:
 
-    gemini: `As an AWS cost optimization specialist, analyze the provided resource data and generate comprehensive cost reduction recommendations while ensuring operational excellence.
+TARGET RESOURCE: [Specific AWS service or resource group]
+FINANCIAL IMPACT: [Current monthly cost → Projected savings with percentages]
+STRATEGIC RECOMMENDATION: [Detailed explanation of proposed optimization]
+IMPLEMENTATION APPROACH: [Step-by-step implementation plan with timelines]
+RISK ASSESSMENT: [Potential operational impacts and mitigation strategies]
+BUSINESS JUSTIFICATION: [ROI analysis and long-term benefits]
 
-Analysis Framework:
-1. **Compute Optimization**: Right-size instances, leverage spot instances, implement auto-scaling
-2. **Storage Strategy**: Optimize storage classes, implement lifecycle policies, clean unused volumes
-3. **Reserved Capacity**: Identify opportunities for Reserved Instances and Savings Plans
-4. **Resource Cleanup**: Find orphaned resources, unused load balancers, idle databases
-5. **Network Efficiency**: Optimize data transfer costs, VPC endpoints, CloudFront usage
-6. **Operational Scheduling**: Implement start/stop schedules for development environments
+ANALYSIS PRINCIPLES:
+- Consider both immediate cost savings and long-term architectural improvements
+- Balance cost optimization with performance, availability, and operational complexity
+- Provide context for why each recommendation makes sense for the business
+- Include implementation timeline and resource requirements
+- Address potential risks and how to mitigate them
 
-Recommendation Format:
-- **Service**: AWS service affected
-- **Current State**: Current configuration and cost
-- **Optimization**: Specific recommendation
-- **Savings Potential**: Monthly cost reduction
-- **Implementation**: Step-by-step guide
-- **Risk Level**: Low/Medium/High operational impact
-- **Timeline**: Implementation timeframe
+AWS Resource Data for Analysis: {resource_data}
 
-AWS Data: {resource_data}
-
-Deliver actionable, prioritized recommendations with clear ROI calculations.`
+Provide thoughtful, detailed recommendations that demonstrate deep understanding of AWS cost optimization while considering broader business context and operational impact.`
   };
 
   useEffect(() => {
     loadAIAgents();
   }, []);
 
-  useEffect(() => {
-    if (formData.provider && !editingAgent) {
-      setFormData(prev => ({
-        ...prev,
-        prompt_template: defaultPrompts[prev.provider]
-      }));
-    }
-  }, [formData.provider, editingAgent]);
-
   const loadAIAgents = async () => {
     try {
       setLoading(true);
-      const response = await authService.getAIAgents();
-      setAIAgents(response);
+      const agentsData = await authService.getAIAgents();
+      setAiAgents(agentsData);
     } catch (err) {
       setError('Failed to load AI agents: ' + err.message);
     } finally {
@@ -197,9 +184,8 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
       provider: 'anthropic',
       openai_api_key: '',
       anthropic_api_key: '',
-      gemini_api_key: '',
       model: 'claude-3-5-sonnet-20241022',
-      prompt_template: defaultPrompts.anthropic,
+      prompt_template: defaultPrompts.anthropic, 
       temperature: 0.7,
       max_tokens: 1000,
       is_active: true
@@ -213,10 +199,9 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
     setFormData({
       name: agent.name,
       description: agent.description || '',
-      provider: agent.provider || 'anthropic',
+      provider: agent.provider || 'openai',
       openai_api_key: '',
       anthropic_api_key: '',
-      gemini_api_key: '',
       model: agent.model,
       prompt_template: agent.prompt_template,
       temperature: agent.temperature,
@@ -234,9 +219,8 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
 
   const handleProviderChange = (provider) => {
     const defaultModels = {
-      anthropic: 'claude-3-5-sonnet-20241022',
       openai: 'gpt-4',
-      gemini: 'gemini-1.5-pro'
+      anthropic: 'claude-3-5-sonnet-20241022'
     };
     
     setFormData(prev => ({
@@ -263,9 +247,6 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
         if (formData.provider === 'anthropic' && !formData.anthropic_api_key) {
           throw new Error('Anthropic API Key is required for Anthropic provider');
         }
-        if (formData.provider === 'gemini' && !formData.gemini_api_key) {
-          throw new Error('Gemini API Key is required for Gemini provider');
-        }
       }
 
       if (editingAgent) {
@@ -285,9 +266,6 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
         }
         if (formData.anthropic_api_key) {
           updateData.anthropic_api_key = formData.anthropic_api_key;
-        }
-        if (formData.gemini_api_key) {
-          updateData.gemini_api_key = formData.gemini_api_key;
         }
 
         await authService.updateAIAgent(editingAgent.id, updateData);
@@ -321,11 +299,15 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
   const handleSetDefault = async (agentId) => {
     try {
       clearMessages();
+      
       await authService.setDefaultAIAgent(agentId);
+      
       setSuccess('Default AI agent updated successfully');
+      
       await loadAIAgents();
     } catch (err) {
       setError('Failed to set default AI agent: ' + err.message);
+      console.error('Set default error:', err);
     }
   };
 
@@ -345,29 +327,23 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
     setDialogError('');
   };
 
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    setSuccess('Copied to clipboard!');
+  };
+
   const getProviderStats = () => {
     const openaiCount = aiAgents.filter(a => a.provider === 'openai').length;
     const anthropicCount = aiAgents.filter(a => a.provider === 'anthropic').length;
-    const geminiCount = aiAgents.filter(a => a.provider === 'gemini').length;
-    return { openaiCount, anthropicCount, geminiCount };
+    return { openaiCount, anthropicCount };
   };
 
   const getProviderIcon = (provider) => {
-    switch (provider) {
-      case 'anthropic': return <Psychology />;
-      case 'openai': return <Terminal />;
-      case 'gemini': return <AutoAwesome />;
-      default: return <SmartToy />;
-    }
+    return provider === 'anthropic' ? <Psychology /> : <Terminal />;
   };
 
   const getProviderColor = (provider) => {
-    switch (provider) {
-      case 'anthropic': return '#FF6B35';
-      case 'openai': return '#10A37F';
-      case 'gemini': return '#4285F4';
-      default: return '#666';
-    }
+    return provider === 'anthropic' ? '#FF6B35' : '#10A37F';
   };
 
   if (loading) {
@@ -383,7 +359,7 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
     );
   }
 
-  const { openaiCount, anthropicCount, geminiCount } = getProviderStats();
+  const { openaiCount, anthropicCount } = getProviderStats();
 
   return (
     <Container maxWidth="lg">
@@ -395,7 +371,7 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
                 AI Agent Settings
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                Configure OpenAI, Anthropic, and Google agents for AWS cost optimization analysis
+                Configure OpenAI and Anthropic agents for AWS cost optimization analysis
               </Typography>
             </Box>
             <Button
@@ -442,7 +418,7 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                   Create your first AI agent to enable intelligent AWS cost optimization analysis. 
-                  Configure OpenAI, Anthropic, or Gemini models with custom prompts for automated insights and recommendations.
+                  Configure OpenAI or Anthropic models with custom prompts for automated insights and recommendations.
                 </Typography>
                 <Button
                   variant="contained"
@@ -484,35 +460,17 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
                             {aiAgents.filter(a => a.is_active).length}
                           </Typography>
                           <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                            Active Agents
+                            Active
                           </Typography>
                         </Box>
-                        <CheckCircle sx={{ fontSize: 48, opacity: 0.8 }} />
+                        <AutoAwesome sx={{ fontSize: 48, opacity: 0.8 }} />
                       </Box>
                     </CardContent>
                   </Card>
                 </Grid>
 
                 <Grid item xs={12} sm={6} md={3}>
-                  <Card sx={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', color: 'white' }}>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Box>
-                          <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-                            {openaiCount}
-                          </Typography>
-                          <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                            OpenAI Agents
-                          </Typography>
-                        </Box>
-                        <Terminal sx={{ fontSize: 48, opacity: 0.8 }} />
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
-                  <Card sx={{ background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', color: 'white' }}>
+                  <Card sx={{ background: 'linear-gradient(135deg, #FF6B35 0%, #F7931E 100%)', color: 'white' }}>
                     <CardContent>
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <Box>
@@ -520,7 +478,7 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
                             {anthropicCount}
                           </Typography>
                           <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                            Anthropic Agents
+                            Anthropic
                           </Typography>
                         </Box>
                         <Psychology sx={{ fontSize: 48, opacity: 0.8 }} />
@@ -530,18 +488,18 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
                 </Grid>
 
                 <Grid item xs={12} sm={6} md={3}>
-                  <Card sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+                  <Card sx={{ background: 'linear-gradient(135deg, #10A37F 0%, #1A7F64 100%)', color: 'white' }}>
                     <CardContent>
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <Box>
                           <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-                            {geminiCount}
+                            {openaiCount}
                           </Typography>
                           <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                            Gemini Agents
+                            OpenAI
                           </Typography>
                         </Box>
-                        <AutoAwesome sx={{ fontSize: 48, opacity: 0.8 }} />
+                        <Terminal sx={{ fontSize: 48, opacity: 0.8 }} />
                       </Box>
                     </CardContent>
                   </Card>
@@ -549,113 +507,143 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
               </Grid>
 
               <Card sx={{ borderRadius: 3 }}>
-                <CardContent>
+                <CardContent sx={{ p: 0 }}>
                   <TableContainer>
                     <Table>
                       <TableHead>
-                        <TableRow>
-                          <TableCell>Configuration</TableCell>
-                          <TableCell>Provider</TableCell>
-                          <TableCell>Model</TableCell>
-                          <TableCell>Parameters</TableCell>
-                          <TableCell>Status</TableCell>
-                          <TableCell>Created</TableCell>
-                          <TableCell align="right">Actions</TableCell>
+                        <TableRow sx={{ bgcolor: 'grey.50' }}>
+                          <TableCell sx={{ fontWeight: 600, py: 2 }}>Configuration</TableCell>
+                          <TableCell sx={{ fontWeight: 600 }}>Provider</TableCell>
+                          <TableCell sx={{ fontWeight: 600 }}>Model</TableCell>
+                          <TableCell sx={{ fontWeight: 600 }}>Parameters</TableCell>
+                          <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                          <TableCell sx={{ fontWeight: 600 }}>Created</TableCell>
+                          <TableCell sx={{ fontWeight: 600 }}>Actions</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
                         {aiAgents.map((agent) => (
-                          <TableRow key={agent.id} hover>
+                          <TableRow 
+                            key={agent.id}
+                            sx={{ 
+                              '&:hover': { bgcolor: 'grey.25' },
+                              borderBottom: 1,
+                              borderColor: 'divider'
+                            }}
+                          >
                             <TableCell>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                {agent.is_default && (
-                                  <Star sx={{ color: '#FFC107', fontSize: 20 }} />
-                                )}
+                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                <Box
+                                  sx={{
+                                    width: 40,
+                                    height: 40,
+                                    borderRadius: 2,
+                                    bgcolor: agent.is_default ? 'warning.main' : getProviderColor(agent.provider || 'openai'),
+                                    color: 'white',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    mr: 2
+                                  }}
+                                >
+                                  {getProviderIcon(agent.provider || 'openai')}
+                                </Box>
                                 <Box>
-                                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                                    {agent.name}
-                                  </Typography>
-                                  {agent.description && (
-                                    <Typography variant="caption" color="text.secondary">
-                                      {agent.description}
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                      {agent.name}
                                     </Typography>
-                                  )}
+                                    {agent.is_default && <Star sx={{ fontSize: 16, color: 'warning.main' }} />}
+                                  </Box>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {agent.description || 'No description'}
+                                  </Typography>
                                 </Box>
                               </Box>
                             </TableCell>
                             <TableCell>
                               <Chip
-                                icon={getProviderIcon(agent.provider)}
-                                label={agent.provider === 'anthropic' ? 'Anthropic' : 
-                                      agent.provider === 'openai' ? 'OpenAI' : 
-                                      agent.provider === 'gemini' ? 'Gemini' : agent.provider}
-                                sx={{
-                                  backgroundColor: getProviderColor(agent.provider),
+                                label={agent.provider || 'openai'}
+                                sx={{ 
+                                  backgroundColor: getProviderColor(agent.provider || 'openai'),
                                   color: 'white',
-                                  fontWeight: 600
+                                  textTransform: 'capitalize'
                                 }}
+                                size="small"
                               />
                             </TableCell>
                             <TableCell>
-                              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                                {agent.model}
+                              <Chip
+                                label={agent.model}
+                                color="primary"
+                                size="small"
+                                variant="outlined"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2">
+                                Temp: {agent.temperature} | Tokens: {agent.max_tokens}
                               </Typography>
                             </TableCell>
                             <TableCell>
-                              <Typography variant="caption" color="text.secondary">
-                                Temp: {agent.temperature}
-                                <br />
-                                Tokens: {agent.max_tokens}
-                              </Typography>
+                              <Chip
+                                label={agent.is_active ? 'Active' : 'Inactive'}
+                                color={agent.is_active ? 'success' : 'default'}
+                                size="small"
+                                variant="outlined"
+                              />
                             </TableCell>
                             <TableCell>
-                              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                                {agent.is_default && (
-                                  <Chip
-                                    label="Default"
-                                    color="warning"
-                                    size="small"
-                                    variant="outlined"
-                                  />
-                                )}
-                                <Chip
-                                  label={agent.is_active ? 'Active' : 'Inactive'}
-                                  color={agent.is_active ? 'success' : 'default'}
-                                  size="small"
-                                  variant="outlined"
-                                />
-                              </Box>
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography variant="body2" color="text.secondary">
                                 {new Date(agent.created_at).toLocaleDateString()}
                               </Typography>
                             </TableCell>
-                            <TableCell align="right">
+                            <TableCell>
                               <Box sx={{ display: 'flex', gap: 1 }}>
+                                <Tooltip title="Edit Agent">
+                                  <IconButton 
+                                    onClick={() => handleEditAgent(agent)}
+                                    size="small"
+                                    sx={{ color: 'primary.main' }}
+                                  >
+                                    <Edit />
+                                  </IconButton>
+                                </Tooltip>
                                 {!agent.is_default && (
-                                  <Tooltip title="Set as default">
-                                    <IconButton
+                                  <Tooltip title="Set as Default">
+                                    <IconButton 
+                                      onClick={() => {
+                                        handleSetDefault(agent.id);
+                                      }}
                                       size="small"
-                                      onClick={() => handleSetDefault(agent.id)}
+                                      sx={{ 
+                                        color: 'warning.main',
+                                        '&:hover': {
+                                          backgroundColor: 'warning.lighter',
+                                          transform: 'scale(1.1)'
+                                        }
+                                      }}
                                     >
                                       <StarBorder />
                                     </IconButton>
                                   </Tooltip>
                                 )}
-                                <Tooltip title="Edit">
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => handleEditAgent(agent)}
-                                  >
-                                    <Edit />
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title="Delete">
-                                  <IconButton
-                                    size="small"
+                                {agent.is_default && (
+                                  <Tooltip title="This is the default agent">
+                                    <IconButton 
+                                      size="small"
+                                      disabled
+                                      sx={{ color: 'warning.main' }}
+                                    >
+                                      <Star />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
+                                <Tooltip title="Delete Agent">
+                                  <IconButton 
                                     onClick={() => handleDeleteAgent(agent)}
-                                    color="error"
+                                    size="small"
+                                    sx={{ color: 'error.main' }}
                                   >
                                     <Delete />
                                   </IconButton>
@@ -672,28 +660,36 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
             </>
           )}
 
-          {/* Create/Edit Dialog */}
           <Dialog 
             open={dialogOpen} 
             onClose={() => setDialogOpen(false)}
             maxWidth="md"
             fullWidth
           >
-            <DialogTitle>
-              {editingAgent ? 'Edit AI Agent' : 'Create AI Agent'}
+            <DialogTitle sx={{ pb: 1 }}>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                {editingAgent ? 'Edit AI Agent' : 'Create New AI Agent'}
+              </Typography>
             </DialogTitle>
-            <DialogContent>
+            
+            <DialogContent sx={{ pt: 2 }}>
               {dialogError && (
-                <Alert severity="error" sx={{ mb: 2 }} onClose={clearDialogError}>
+                <Alert 
+                  severity="error" 
+                  sx={{ mb: 3, borderRadius: 2 }} 
+                  onClose={clearDialogError}
+                >
                   {dialogError}
                 </Alert>
               )}
+
+              {formLoading && <LinearProgress sx={{ mb: 2 }} />}
               
-              <Grid container spacing={2} sx={{ mt: 1 }}>
-                <Grid item xs={12} sm={6}>
+             <Grid container spacing={3}>
+                <Grid item xs={12} sm={6} sx={{ mt: 1 }}>
                   <TextField
                     fullWidth
-                    label="Agent Name"
+                    label="Configuration Name"
                     value={formData.name}
                     onChange={(e) => handleFormChange('name', e.target.value)}
                     required
@@ -701,7 +697,7 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
                   />
                 </Grid>
                 
-                <Grid item xs={12} sm={6}>
+                <Grid item xs={12} sm={6} sx={{ mt: 1 }}>
                   <FormControl fullWidth>
                     <InputLabel>AI Provider</InputLabel>
                     <Select
@@ -719,12 +715,6 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Terminal sx={{ color: '#10A37F' }} />
                           OpenAI GPT
-                        </Box>
-                      </MenuItem>
-                      <MenuItem value="gemini">
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <AutoAwesome sx={{ color: '#4285F4' }} />
-                          Google Gemini
                         </Box>
                       </MenuItem>
                     </Select>
@@ -761,137 +751,160 @@ Deliver actionable, prioritized recommendations with clear ROI calculations.`
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
-                    label={`${formData.provider === 'anthropic' ? 'Anthropic' : 
-                           formData.provider === 'openai' ? 'OpenAI' : 'Gemini'} API Key`}
+                    label={`${formData.provider === 'anthropic' ? 'Anthropic' : 'OpenAI'} API Key`}
                     type={showApiKey ? 'text' : 'password'}
-                    value={formData.provider === 'anthropic' ? formData.anthropic_api_key : 
-                           formData.provider === 'openai' ? formData.openai_api_key : formData.gemini_api_key}
+                    value={formData.provider === 'anthropic' ? formData.anthropic_api_key : formData.openai_api_key}
                     onChange={(e) => handleFormChange(
-                      formData.provider === 'anthropic' ? 'anthropic_api_key' : 
-                      formData.provider === 'openai' ? 'openai_api_key' : 'gemini_api_key', 
+                      formData.provider === 'anthropic' ? 'anthropic_api_key' : 'openai_api_key', 
                       e.target.value
                     )}
                     required={!editingAgent}
                     placeholder={editingAgent ? 'Leave empty to keep current key' : 
-                      formData.provider === 'anthropic' ? 'sk-ant-api...' : 
-                      formData.provider === 'openai' ? 'sk-...' : 'AI...'
-                    }
-                    helperText={!editingAgent ?
-                      `Your ${formData.provider === 'anthropic' ? 'Anthropic' : 
-                               formData.provider === 'openai' ? 'OpenAI' : 'Gemini'} API key will be encrypted and stored securely.` :
-                      'Leave empty to keep the existing API key unchanged.'
-                    }
+                      formData.provider === 'anthropic' ? 'sk-ant-api...' : 'sk-...'}
+                    helperText={!editingAgent ? 'Your API key will be automatically validated when creating the agent (minimal token usage)' : ''}
                     InputProps={{
                       endAdornment: (
-                        <InputAdornment position="end">
-                          <IconButton
-                            onClick={() => setShowApiKey(!showApiKey)}
-                            edge="end"
-                          >
-                            {showApiKey ? <VisibilityOff /> : <Visibility />}
-                          </IconButton>
-                        </InputAdornment>
+                        <IconButton
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          edge="end"
+                          size="small"
+                        >
+                          {showApiKey ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
                       )
                     }}
                   />
                 </Grid>
-
-                <Grid item xs={12} sm={6}>
-                  <Typography gutterBottom>Temperature: {formData.temperature}</Typography>
-                  <Slider
-                    value={formData.temperature}
-                    min={0}
-                    max={1}
-                    step={0.1}
-                    marks={[
-                      { value: 0, label: '0' },
-                      { value: 0.5, label: '0.5' },
-                      { value: 1, label: '1' }
-                    ]}
-                    onChange={(e, value) => handleFormChange('temperature', value)}
-                  />
-                  <Typography variant="caption" color="text.secondary">
-                    Lower values for more focused responses, higher for more creative
-                  </Typography>
-                </Grid>
-
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    label="Max Tokens"
-                    value={formData.max_tokens}
-                    onChange={(e) => handleFormChange('max_tokens', parseInt(e.target.value))}
-                    inputProps={{ min: 100, max: 4000, step: 100 }}
-                    helperText="Maximum response length (100-4000 tokens)"
-                  />
-                </Grid>
-
+                
                 <Grid item xs={12}>
                   <TextField
                     fullWidth
-                    multiline
-                    rows={8}
                     label="Prompt Template"
                     value={formData.prompt_template}
                     onChange={(e) => handleFormChange('prompt_template', e.target.value)}
                     required
-                    placeholder="Enter your custom prompt template. Use {resource_data} placeholder for AWS data."
-                    helperText="Use {resource_data} placeholder to insert AWS cost data into your prompt"
+                    multiline
+                    rows={8}
+                    placeholder="Enter your cost optimization prompt template..."
+                  />
+                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                    <Button
+                      size="small"
+                      onClick={() => handleFormChange('prompt_template', defaultPrompts[formData.provider])}
+                      disabled={formData.prompt_template === defaultPrompts[formData.provider]}
+                    >
+                      Use Default Template
+                    </Button>
+                    <Button
+                      size="small"
+                      onClick={() => copyToClipboard(formData.prompt_template)}
+                    >
+                      <ContentCopy sx={{ fontSize: 16, mr: 1 }} />
+                      Copy
+                    </Button>
+                  </Box>
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <Typography gutterBottom>
+                    Temperature: {formData.temperature}
+                  </Typography>
+                  <Slider
+                    value={formData.temperature}
+                    onChange={(e, value) => handleFormChange('temperature', value)}
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    marks={[
+                      { value: 0, label: 'Focused' },
+                      { value: 1, label: 'Balanced' },
+                      { value: 2, label: 'Creative' }
+                    ]}
                   />
                 </Grid>
-
+                
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Max Tokens"
+                    type="number"
+                    value={formData.max_tokens}
+                    onChange={(e) => handleFormChange('max_tokens', parseInt(e.target.value))}
+                    inputProps={{ min: 100, max: 4000 }}
+                  />
+                </Grid>
+                
                 <Grid item xs={12}>
                   <FormControlLabel
                     control={
                       <Switch
                         checked={formData.is_active}
                         onChange={(e) => handleFormChange('is_active', e.target.checked)}
+                        color="primary"
                       />
                     }
-                    label="Active Agent"
+                    label="Active Configuration"
                   />
                 </Grid>
               </Grid>
             </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="contained"
-                onClick={handleSubmit}
+            
+            <DialogActions sx={{ p: 3, pt: 2 }}>
+              <Button 
+                onClick={() => setDialogOpen(false)}
                 disabled={formLoading}
               >
-                {formLoading ? 'Testing...' : (editingAgent ? 'Update' : 'Create')}
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleSubmit}
+                variant="contained"
+                disabled={formLoading || !formData.name || !formData.prompt_template}
+                sx={{ minWidth: 100 }}
+              >
+                {formLoading ? 'Creating & Validating...' : (editingAgent ? 'Update' : 'Create & Validate')}
               </Button>
             </DialogActions>
           </Dialog>
 
-          {/* Delete Confirmation Dialog */}
-          <Dialog
-            open={deleteDialogOpen}
+          <Dialog 
+            open={deleteDialogOpen} 
             onClose={() => setDeleteDialogOpen(false)}
+            maxWidth="sm"
           >
             <DialogTitle>
-              Confirm Delete
-            </DialogTitle>
-            <DialogContent>
-              <Typography>
-                Are you sure you want to delete the AI agent "{agentToDelete?.name}"? 
-                This action cannot be undone.
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                Confirm Deletion
               </Typography>
+            </DialogTitle>
+            
+            <DialogContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <Warning sx={{ color: 'warning.main', mr: 2 }} />
+                <Typography variant="body1">
+                  Are you sure you want to delete the AI agent <strong>{agentToDelete?.name}</strong>?
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary">
+                This action cannot be undone. All configurations and settings for this agent will be permanently removed.
+              </Typography>
+              {agentToDelete?.is_default && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  This is the default agent. Another agent will automatically become the new default.
+                </Alert>
+              )}
             </DialogContent>
-            <DialogActions>
+            
+            <DialogActions sx={{ p: 3, pt: 2 }}>
               <Button onClick={() => setDeleteDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button
+              <Button 
+                onClick={handleConfirmDelete}
                 variant="contained"
                 color="error"
-                onClick={handleConfirmDelete}
               >
-                Delete
+                Delete Agent
               </Button>
             </DialogActions>
           </Dialog>

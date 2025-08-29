@@ -36,8 +36,6 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 import tempfile
 from dotenv import load_dotenv
 import secrets
-from openai_api import test_openai_config, get_openai_completion
-from anthropic_api import test_anthropic_config, get_anthropic_completion
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -969,6 +967,95 @@ def get_rightsizing_recommendations(ce_client):
     except Exception as e:
         return {'RightsizingRecommendations': []}
 
+# OpenAI helpers
+def test_openai_config(api_key: str, model: str, prompt: str, temperature: float, max_tokens: int, minimal: bool = False) -> dict:
+    try:
+        client = openai.OpenAI(api_key=api_key, timeout=30.0)
+        
+        if minimal:
+            test_prompt = "Hi"
+            test_max_tokens = 5
+            test_temperature = 0.1
+        else:
+            test_prompt = prompt
+            test_max_tokens = max_tokens
+            test_temperature = temperature
+        
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": test_prompt}],
+            temperature=test_temperature,
+            max_tokens=test_max_tokens,
+            timeout=30.0
+        )
+        
+        return {
+            "success": True,
+            "response": response.choices[0].message.content if not minimal else "API key is valid",
+            "tokens_used": response.usage.total_tokens,
+            "model_used": response.model,
+            "test_type": "minimal" if minimal else "full"
+        }
+    except openai.APIError as e:
+        return {"success": False, "error": f"OpenAI API Error: {str(e)}"}
+    except openai.RateLimitError as e:
+        return {"success": False, "error": f"Rate limit exceeded: {str(e)}"}
+    except openai.AuthenticationError as e:
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except Exception as e:
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
+
+# Anthropic helpers
+def test_anthropic_config(api_key: str, model: str, prompt: str, temperature: float, max_tokens: int, minimal: bool = False) -> dict:
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        
+        if minimal:
+            test_prompt = "Hi"
+            test_max_tokens = 5
+            test_temperature = 0.1
+        else:
+            test_prompt = prompt
+            test_max_tokens = max_tokens
+            test_temperature = temperature
+        
+        response = client.messages.create(
+            model=model,
+            max_tokens=test_max_tokens,
+            temperature=test_temperature,
+            messages=[
+                {"role": "user", "content": test_prompt}
+            ]
+        )
+        
+        # Extract response text
+        response_text = ""
+        if response.content and len(response.content) > 0:
+            response_text = response.content[0].text
+        
+        # Extract token usage
+        tokens_used = 0
+        if hasattr(response, 'usage'):
+            tokens_used = response.usage.input_tokens + response.usage.output_tokens
+        
+        return {
+            "success": True,
+            "response": response_text if not minimal else "API key is valid",
+            "tokens_used": tokens_used,
+            "model_used": response.model if hasattr(response, 'model') else model,
+            "test_type": "minimal" if minimal else "full"
+        }
+        
+    except anthropic.AuthenticationError as e:
+        return {"success": False, "error": f"Authentication failed: {str(e)}"}
+    except anthropic.RateLimitError as e:
+        return {"success": False, "error": f"Rate limit exceeded: {str(e)}"}
+    except anthropic.BadRequestError as e:
+        return {"success": False, "error": f"Bad request: {str(e)}"}
+    except anthropic.APIError as e:
+        return {"success": False, "error": f"Anthropic API Error: {str(e)}"}
+    except Exception as e:
+        return {"success": False, "error": f"Unexpected error: {str(e)}"}
 
 # AWS helpers
 def test_aws_credentials(access_key_id: str, secret_access_key: str, region: str = "us-east-1") -> dict:
