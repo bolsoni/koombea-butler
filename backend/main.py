@@ -38,6 +38,7 @@ from dotenv import load_dotenv
 import secrets
 from openai_api import test_openai_config, get_openai_completion
 from anthropic_api import test_anthropic_config, get_anthropic_completion
+from gemini_api import test_gemini_config, get_gemini_completion
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -127,6 +128,7 @@ class AIAgentConfig(Base):
     provider = Column(String(20), nullable=False, default="openai")
     openai_api_key_encrypted = Column(Text, nullable=True)
     anthropic_api_key_encrypted = Column(Text, nullable=True)
+    gemini_api_key_encrypted = Column(Text, nullable=True)
     model = Column(String(50), nullable=False, default="gpt-4")
     prompt_template = Column(Text, nullable=False)
     temperature = Column(Float, default=0.7)
@@ -242,7 +244,7 @@ class PasswordChange(BaseModel):
 class AIAgentConfigCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    provider: Literal["openai", "anthropic"] = "openai"
+    provider: Literal["openai", "anthropic", "gemini"] = "openai"
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     model: str = "gpt-4"
@@ -254,7 +256,7 @@ class AIAgentConfigCreate(BaseModel):
 class AIAgentConfigUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    provider: Optional[Literal["openai", "anthropic"]] = None
+    provider: Optional[Literal["openai", "anthropic", "gemini"]] = None
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     model: Optional[str] = None
@@ -280,9 +282,10 @@ class AIAgentConfigResponse(BaseModel):
 
 class AIAgentTestRequest(BaseModel):
     agent_id: Optional[int] = None
-    provider: Literal["openai", "anthropic"] = "openai"
+    provider: Literal["openai", "anthropic", "gemini"] = "openai"
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
     model: str
     prompt: str
     temperature: float = 0.7
@@ -1675,7 +1678,7 @@ def generate_ai_cost_insights(
             resource_data=json.dumps(cost_summary, indent=2)
         )
         
-        # Use appropriate AI provider
+# Use appropriate AI provider
         if ai_config.provider == "openai":
             api_key = decrypt_api_key(ai_config.openai_api_key_encrypted)
             client = openai.OpenAI(api_key=api_key, timeout=60.0)
@@ -1693,7 +1696,7 @@ def generate_ai_cost_insights(
             insights_text = response.choices[0].message.content
             tokens_used = response.usage.total_tokens
             
-        else:  # anthropic
+        elif ai_config.provider == "anthropic":
             api_key = decrypt_api_key(ai_config.anthropic_api_key_encrypted)
             client = anthropic.Anthropic(api_key=api_key)
             
@@ -1705,6 +1708,30 @@ def generate_ai_cost_insights(
                     {"role": "user", "content": f"You are an AWS cost optimization expert. Analyze the provided cost data and provide specific, actionable recommendations.\n\n{analysis_prompt}"}
                 ]
             )
+            
+            insights_text = response.content[0].text
+            tokens_used = response.usage.input_tokens + response.usage.output_tokens
+            
+        elif ai_config.provider == "gemini":
+            api_key = decrypt_api_key(ai_config.gemini_api_key_encrypted)
+            
+            # Formato do prompt para Gemini
+            full_prompt = f"You are an AWS cost optimization expert. Analyze the provided cost data and provide specific, actionable recommendations.\n\n{analysis_prompt}"
+            
+            response = get_gemini_completion(
+                api_key=api_key,
+                model=ai_config.model,
+                prompt=full_prompt,
+                temperature=ai_config.temperature,
+                max_tokens=ai_config.max_tokens
+            )
+            
+            insights_text = response.text if hasattr(response, 'text') else str(response)
+            # Estimar tokens (Gemini não fornece contagem exata)
+            tokens_used = len(analysis_prompt.split()) + len(insights_text.split())
+            
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported AI provider: {ai_config.provider}")
             
             # Extract response text
             insights_text = ""
@@ -2176,12 +2203,19 @@ def create_ai_agent(config_data: AIAgentConfigCreate, request: Request = None, d
         test_result = test_openai_config(
             config_data.openai_api_key, config_data.model, "Test", 0.1, 5, minimal=True
         )
-    else:  # anthropic
+    elif config_data.provider == "anthropic":
         if not config_data.anthropic_api_key:
             raise HTTPException(status_code=400, detail="Anthropic API key is required for Anthropic provider")
         
         test_result = test_anthropic_config(
             config_data.anthropic_api_key, config_data.model, "Test", 0.1, 5, minimal=True
+        )
+    elif config_data.provider == "gemini":  
+        if not config_data.gemini_api_key:
+            raise HTTPException(status_code=400, detail="Gemini API key is required for Gemini provider")
+        
+        test_result = test_gemini_config(
+            config_data.gemini_api_key, config_data.model, "Test", 0.1, 5, minimal=True
         )
     
     if not test_result["success"]:
@@ -2203,6 +2237,7 @@ def create_ai_agent(config_data: AIAgentConfigCreate, request: Request = None, d
         provider=config_data.provider,
         openai_api_key_encrypted=encrypt_api_key(config_data.openai_api_key) if config_data.openai_api_key else None,
         anthropic_api_key_encrypted=encrypt_api_key(config_data.anthropic_api_key) if config_data.anthropic_api_key else None,
+        gemini_api_key_encrypted=encrypt_api_key(config_data.gemini_api_key) if config_data.gemini_api_key else None,  # NOVA LINHA
         model=config_data.model, prompt_template=config_data.prompt_template,
         temperature=config_data.temperature, max_tokens=config_data.max_tokens,
         is_active=config_data.is_active, created_by=admin_user.id
@@ -2266,7 +2301,7 @@ def update_ai_agent(config_id: int, config_data: AIAgentConfigUpdate, request: R
             raise HTTPException(status_code=400, detail="Configuration name already exists")
     
     # Test API keys if provided
-    if config_data.openai_api_key or config_data.anthropic_api_key:
+    if config_data.openai_api_key or config_data.anthropic_api_key or config_data.gemini_api_key:  # ADICIONAR gemini_api_key
         provider = config_data.provider or config.provider
         model = config_data.model or config.model
         
@@ -2277,6 +2312,10 @@ def update_ai_agent(config_id: int, config_data: AIAgentConfigUpdate, request: R
         elif provider == "anthropic" and config_data.anthropic_api_key:
             test_result = test_anthropic_config(
                 config_data.anthropic_api_key, model, "Test", 0.1, 5, minimal=True
+            )
+        elif provider == "gemini" and config_data.gemini_api_key:  # NOVA SEÇÃO
+            test_result = test_gemini_config(
+                config_data.gemini_api_key, model, "Test", 0.1, 5, minimal=True
             )
         else:
             test_result = {"success": True}
@@ -2310,6 +2349,9 @@ def update_ai_agent(config_id: int, config_data: AIAgentConfigUpdate, request: R
     if config_data.anthropic_api_key is not None:
         config.anthropic_api_key_encrypted = encrypt_api_key(config_data.anthropic_api_key)
         changes['anthropic_api_key'] = "updated"
+    if config_data.gemini_api_key is not None:  
+        config.gemini_api_key_encrypted = encrypt_api_key(config_data.gemini_api_key)
+        changes['gemini_api_key'] = "updated"
     if config_data.model is not None:
         changes['model'] = {'old': config.model, 'new': config_data.model}
         config.model = config_data.model
@@ -2417,8 +2459,10 @@ def test_ai_agent(test_data: AIAgentTestRequest, request: Request = None, db: Se
         try:
             if config.provider == "openai":
                 api_key = decrypt_api_key(config.openai_api_key_encrypted)
-            else:
+            elif config.provider == "anthropic":
                 api_key = decrypt_api_key(config.anthropic_api_key_encrypted)
+            elif config.provider == "gemini":  # NOVA SEÇÃO
+                api_key = decrypt_api_key(config.gemini_api_key_encrypted)
         except Exception as e:
             raise HTTPException(status_code=400, detail="Failed to decrypt API key")
     else:
@@ -2426,18 +2470,27 @@ def test_ai_agent(test_data: AIAgentTestRequest, request: Request = None, db: Se
             if not test_data.openai_api_key:
                 raise HTTPException(status_code=400, detail="OpenAI API key is required for testing")
             api_key = test_data.openai_api_key
-        else:
+        elif test_data.provider == "anthropic":
             if not test_data.anthropic_api_key:
                 raise HTTPException(status_code=400, detail="Anthropic API key is required for testing")
             api_key = test_data.anthropic_api_key
+        elif test_data.provider == "gemini":  # NOVA SEÇÃO
+            if not test_data.gemini_api_key:
+                raise HTTPException(status_code=400, detail="Gemini API key is required for testing")
+            api_key = test_data.gemini_api_key
     
     if test_data.provider == "openai":
         result = test_openai_config(
             api_key, test_data.model, test_data.prompt,
             test_data.temperature, test_data.max_tokens, minimal=test_data.minimal
         )
-    else:
+    elif test_data.provider == "anthropic":
         result = test_anthropic_config(
+            api_key, test_data.model, test_data.prompt,
+            test_data.temperature, test_data.max_tokens, minimal=test_data.minimal
+        )
+    elif test_data.provider == "gemini":  # NOVA SEÇÃO
+        result = test_gemini_config(
             api_key, test_data.model, test_data.prompt,
             test_data.temperature, test_data.max_tokens, minimal=test_data.minimal
         )
