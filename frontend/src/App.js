@@ -1,3 +1,4 @@
+// frontend/src/App.js
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
@@ -14,6 +15,7 @@ import UserManagement from './pages/UserManagement';
 import AIAgentSettings from './pages/AIAgentSettings';
 import AWSAccountsPage from './pages/AWSAccountsPage';
 import ProfilePage from './pages/ProfilePage';
+import DiagramPage from './pages/DiagramPage';
 import { authService } from './services/authService';
 
 // Create Auth Context
@@ -61,14 +63,20 @@ const theme = createTheme({
       main: '#3182CE',
       lighter: 'rgba(49, 130, 206, 0.1)',
     },
-    grey: {
-      25: 'rgba(0, 0, 0, 0.02)',
-    },
   },
   typography: {
     fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    h4: {
+    h1: {
       fontWeight: 700,
+    },
+    h2: {
+      fontWeight: 600,
+    },
+    h3: {
+      fontWeight: 600,
+    },
+    h4: {
+      fontWeight: 600,
     },
     h5: {
       fontWeight: 600,
@@ -77,18 +85,7 @@ const theme = createTheme({
       fontWeight: 600,
     },
   },
-  shape: {
-    borderRadius: 8,
-  },
   components: {
-    MuiCard: {
-      styleOverrides: {
-        root: {
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          borderRadius: 12,
-        },
-      },
-    },
     MuiButton: {
       styleOverrides: {
         root: {
@@ -98,28 +95,36 @@ const theme = createTheme({
         },
       },
     },
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          borderRadius: 12,
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+        },
+      },
+    },
   },
 });
 
 // Auth Provider Component
 const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Check if user is admin
   const isAdmin = user?.is_admin || false;
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      checkAuthStatus();
-    } else {
-      setLoading(false);
-    }
+    checkAuthStatus();
   }, []);
 
   const checkAuthStatus = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
     try {
       const userData = await authService.getMe();
       setUser(userData);
@@ -251,6 +256,15 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <AWSAccountsPage />
+                  </ProtectedRoute>
+                } 
+              />
+              
+              <Route 
+                path="/diagram" 
+                element={
+                  <ProtectedRoute>
+                    <DiagramPage />
                   </ProtectedRoute>
                 } 
               />

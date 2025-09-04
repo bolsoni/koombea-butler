@@ -99,7 +99,12 @@ const Layout = ({ children }) => {
       icon: <Assessment />, 
       path: '/ai-reports'
     },
-  ];
+    { 
+    text: 'Diagram', 
+    icon: <Timeline />, 
+    path: '/diagram'
+  },
+ ];
 
   const managementItems = [
     ...(isAdmin ? [
