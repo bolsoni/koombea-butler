@@ -33,6 +33,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.colors import Color
+from reportlab.platypus import HRFlowable
 import tempfile
 from dotenv import load_dotenv
 import secrets
@@ -247,6 +249,7 @@ class AIAgentConfigCreate(BaseModel):
     provider: Literal["openai", "anthropic", "gemini"] = "openai"
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
     model: str = "gpt-4"
     prompt_template: str
     temperature: float = 0.7
@@ -259,6 +262,7 @@ class AIAgentConfigUpdate(BaseModel):
     provider: Optional[Literal["openai", "anthropic", "gemini"]] = None
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
     model: Optional[str] = None
     prompt_template: Optional[str] = None
     temperature: Optional[float] = None
@@ -596,249 +600,310 @@ def encrypt_api_key(api_key: str) -> str:
 def decrypt_api_key(encrypted_key: str) -> str:
     return fernet.decrypt(encrypted_key.encode()).decode()
 
-
-def generate_cost_report_pdf(detailed_response, account_id, start_date, end_date, group_by):
-    """Generate PDF report for cost data"""
+def generate_ai_report_pdf(report, account, agent, owner):
+    """Generate enhanced PDF report for AI analysis with Koombea/AWS branding"""
     
     # Create a temporary file
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
     
-    # Create PDF document
-    doc = SimpleDocTemplate(temp_file.name, pagesize=A4)
+    # Create PDF document with margins
+    doc = SimpleDocTemplate(
+        temp_file.name, 
+        pagesize=A4,
+        leftMargin=50,
+        rightMargin=50,
+        topMargin=50,
+        bottomMargin=50
+    )
     story = []
     
-    # Get styles
+    # Define colors
+    koombea_green = colors.Color(0.0, 0.7, 0.4)  # #00B366
+    aws_orange = colors.Color(1.0, 0.6, 0.0)     # #FF9900
+    dark_gray = colors.Color(0.2, 0.2, 0.2)      # #333333
+    light_gray = colors.Color(0.95, 0.95, 0.95)  # #F2F2F2
+    
+    # Custom styles
     styles = getSampleStyleSheet()
+    
+    # Header style
+    header_style = ParagraphStyle(
+        'HeaderStyle',
+        parent=styles['Normal'],
+        fontSize=14,
+        textColor=dark_gray,
+        alignment=TA_RIGHT,
+        spaceAfter=20
+    )
+    
+    # Title style
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=18,
+        fontSize=24,
+        textColor=dark_gray,
+        fontName='Helvetica-Bold',
         spaceAfter=30,
         alignment=TA_CENTER
     )
     
-    # Title
-    title = Paragraph(f"AWS Cost Report - {detailed_response.account_name}", title_style)
-    story.append(title)
-    story.append(Spacer(1, 20))
+    # Subtitle style
+    subtitle_style = ParagraphStyle(
+        'SubtitleStyle',
+        parent=styles['Normal'],
+        fontSize=12,
+        textColor=dark_gray,
+        alignment=TA_CENTER,
+        spaceAfter=40
+    )
     
-    # Report Details
-    details_data = [
-        ['Report Period:', f"{start_date} to {end_date}"],
-        ['AWS Account ID:', detailed_response.account_id],
-        ['Account Name:', detailed_response.account_name],
-        ['Grouped By:', group_by.replace('_', ' ').title()],
-        ['Total Cost:', f"${detailed_response.total_cost:.2f} USD"],
-        ['Generated:', datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')]
-    ]
+    # Section header style
+    section_header_style = ParagraphStyle(
+        'SectionHeader',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=aws_orange,
+        fontName='Helvetica-Bold',
+        spaceBefore=20,
+        spaceAfter=10,
+        borderWidth=0,
+        borderColor=koombea_green,
+        borderPadding=5
+    )
     
-    details_table = Table(details_data, colWidths=[2*inch, 3*inch])
-    details_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-        ('BACKGROUND', (1, 0), (1, -1), colors.white),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
+    # Normal text style
+    normal_style = ParagraphStyle(
+        'CustomNormal',
+        parent=styles['Normal'],
+        fontSize=10,
+        textColor=dark_gray,
+        spaceAfter=6,
+        leftIndent=0
+    )
     
-    story.append(details_table)
-    story.append(Spacer(1, 30))
-    
-    # Cost Breakdown Table
-    breakdown_title = Paragraph("Cost Breakdown", styles['Heading2'])
-    story.append(breakdown_title)
-    story.append(Spacer(1, 10))
-    
-    # Prepare table data
-    table_data = [['Service/Resource', 'Cost (USD)', 'Percentage']]
-    
-    for group in detailed_response.groups:
-        table_data.append([
-            group.key,
-            f"${group.amount:.2f}",
-            f"{group.percentage:.1f}%"
-        ])
-    
-    # Create table
-    cost_table = Table(table_data, colWidths=[3*inch, 1.5*inch, 1.5*inch])
-    cost_table.setStyle(TableStyle([
+    # Table styles
+    table_style = TableStyle([
         # Header row
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('BACKGROUND', (0, 0), (-1, 0), koombea_green),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, 0), 'MIDDLE'),
         
         # Data rows
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('TEXTCOLOR', (0, 1), (-1, -1), dark_gray),
         ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
         ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),  # Align numbers to right
-        ('ALIGN', (0, 1), (0, -1), 'LEFT'),    # Align service names to left
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('ALIGN', (1, 1), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         
         # Grid
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('GRID', (0, 0), (-1, -1), 0.5, koombea_green),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, light_gray]),
         
-        # Alternating row colors
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
-    ]))
+        # Padding
+        ('LEFTPADDING', (0, 0), (-1, -1), 12),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ])
     
-    story.append(cost_table)
-    story.append(Spacer(1, 30))
+    # Header with company info
+    header_text = "For internal use only"
+    header = Paragraph(header_text, header_style)
+    story.append(header)
     
-    # Summary
-    summary_title = Paragraph("Summary", styles['Heading2'])
-    story.append(summary_title)
-    story.append(Spacer(1, 10))
-    
-    summary_text = f"""
-    This report shows the cost breakdown for AWS Account {detailed_response.account_name} 
-    ({detailed_response.account_id}) from {start_date} to {end_date}. 
-    
-    Total analyzed cost: ${detailed_response.total_cost:.2f} USD
-    Number of {group_by.replace('_', ' ').lower()} analyzed: {len(detailed_response.groups)}
-    
-    The data is grouped by {group_by.replace('_', ' ').lower()} and shows both absolute costs 
-    and percentage distribution.
-    """
-    
-    summary_para = Paragraph(summary_text, styles['Normal'])
-    story.append(summary_para)
-    
-    # Build PDF
-    doc.build(story)
-    
-    # Read the file content
-    with open(temp_file.name, 'rb') as f:
-        pdf_content = f.read()
-    
-    # Clean up temp file
-    import os
-    os.unlink(temp_file.name)
-    
-    return pdf_content
-
-def generate_ai_report_pdf(report, account, agent, owner):
-    """Generate PDF report for AI analysis"""
-    
-    # Create a temporary file
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-    
-    # Create PDF document
-    doc = SimpleDocTemplate(temp_file.name, pagesize=A4)
-    story = []
-    
-    # Get styles
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        spaceAfter=30,
-        alignment=TA_CENTER
+    # Company name and logo area
+    company_header = Paragraph(
+        '<b>koombea</b>', 
+        ParagraphStyle(
+            'CompanyHeader',
+            parent=styles['Normal'],
+            fontSize=28,
+            textColor=koombea_green,
+            fontName='Helvetica-Bold',
+            alignment=TA_LEFT,
+            spaceAfter=25
+        )
     )
+    story.append(company_header)
+    
+    # Horizontal line
+    line = HRFlowable(
+        width="100%",
+        thickness=2,
+        color=koombea_green,
+        spaceBefore=0,
+        spaceAfter=30
+    )
+    story.append(line)
     
     # Title
-    title = Paragraph(f"AI Cost Analysis Report #{report.id}", title_style)
+    title = Paragraph("AWS Cost Optimization Report", title_style)
     story.append(title)
-    story.append(Spacer(1, 20))
     
-    # Report Details
-    details_data = [
+    # Subtitle with AI analysis info
+    subtitle = Paragraph("AI-Powered Infrastructure Analysis & Recommendations", subtitle_style)
+    story.append(subtitle)
+    
+    # Report information table
+    info_data = [
+        ['Report Information', ''],
         ['Report ID:', f"#{report.id}"],
-        ['AWS Account:', f"{account.name} ({account.aws_account_id})"],
-        ['AI Agent:', agent.name if agent else "Unknown"],
-        ['Analysis Period:', f"{report.analysis_period_start} to {report.analysis_period_end}"],
-        ['Generated By:', owner.name if owner else "Unknown"],
-        ['Generated At:', report.created_at.strftime('%Y-%m-%d %H:%M UTC')],
-        ['Status:', report.report_status.title()]
+        ['Version:', "1.0"],
+        ['Date of analysis:', report.created_at.strftime('%d %B %Y')],
+        ['Created by:', owner.name if owner else "AI Agent"],
+        ['AWS Account:', f"{account.name} ({account.aws_account_id})" if account else "Unknown"],
+        ['Confidentiality level:', "For internal use only"],
     ]
     
-    details_table = Table(details_data, colWidths=[2*inch, 4*inch])
-    details_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-        ('BACKGROUND', (1, 0), (1, -1), colors.white),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    
-    story.append(details_table)
+    info_table = Table(info_data, colWidths=[150, 350])
+    info_table.setStyle(table_style)
+    story.append(info_table)
     story.append(Spacer(1, 30))
     
-    # Metrics Summary
-    metrics_title = Paragraph("Analysis Metrics", styles['Heading2'])
-    story.append(metrics_title)
-    story.append(Spacer(1, 10))
+    # Analysis Summary Section
+    summary_header = Paragraph("Executive Summary", section_header_style)
+    story.append(summary_header)
     
+    # Key metrics table
     metrics_data = [
         ['Metric', 'Value'],
-        ['Estimated Monthly Savings', f"${report.estimated_savings:.2f} USD"],
-        ['Total Cost Analyzed', f"${report.total_cost_analyzed:.2f} USD"],
+        ['Total Cost Analyzed', f"${report.total_cost_analyzed:,.2f}"],
+        ['Estimated Savings', f"${report.estimated_savings:,.2f}"],
+        ['Potential Savings Percentage', f"{(report.estimated_savings/report.total_cost_analyzed*100):.1f}%" if report.total_cost_analyzed > 0 else "0%"],
         ['Services Analyzed', str(report.services_analyzed)],
         ['Rightsizing Opportunities', str(report.rightsizing_opportunities)],
-        ['Confidence Score', f"{report.confidence_score:.1%}"],
-        ['Tokens Used', str(report.tokens_used)],
-        ['Generation Time', f"{report.generation_time_seconds:.2f} seconds"]
+        ['Confidence Score', f"{report.confidence_score:.1f}/10"],
+        ['Analysis Period', f"{report.analysis_period_start} to {report.analysis_period_end}"],
     ]
     
-    metrics_table = Table(metrics_data, colWidths=[3*inch, 2*inch])
-    metrics_table.setStyle(TableStyle([
-        # Header row
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        
-        # Data rows
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),  # Align values to right
-        
-        # Grid
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
-        
-        # Alternating row colors
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
-    ]))
-    
+    metrics_table = Table(metrics_data, colWidths=[200, 300])
+    metrics_table.setStyle(table_style)
     story.append(metrics_table)
-    story.append(Spacer(1, 30))
+    story.append(Spacer(1, 20))
     
-    # AI Recommendations
-    recommendations_title = Paragraph("AI-Generated Recommendations", styles['Heading2'])
-    story.append(recommendations_title)
-    story.append(Spacer(1, 10))
+    # Recommendations Section
+    recommendations_header = Paragraph("Detailed Recommendations", section_header_style)
+    story.append(recommendations_header)
     
-    # Split recommendations into paragraphs for better formatting
-    recommendations_text = report.recommendations or "No recommendations available."
-    recommendations_paragraphs = recommendations_text.split('\n\n')
-    
-    for para_text in recommendations_paragraphs:
-        if para_text.strip():
-            para = Paragraph(para_text.strip(), styles['Normal'])
-            story.append(para)
-            story.append(Spacer(1, 12))
+    # Format recommendations text - SIMPLE APPROACH
+    if report.recommendations:
+        # Clean the text and split into paragraphs
+        recommendations_text = report.recommendations.replace('**', '').strip()
+        paragraphs = recommendations_text.split('\n')
+        
+        current_rec_number = None
+        
+        for paragraph in paragraphs:
+            paragraph = paragraph.strip()
+            if not paragraph:
+                continue
+            
+            # Check if this line starts a new recommendation (1., 2., 3., etc.)
+            import re
+            rec_match = re.match(r'^(\d+)\.\s*(.+)', paragraph)
+            
+            if rec_match:
+                # This is a new recommendation header
+                rec_number = rec_match.group(1)
+                rec_title = rec_match.group(2)
+                current_rec_number = rec_number
+                
+                # Add some space before new recommendation
+                story.append(Spacer(1, 12))
+                
+                # Create the header
+                rec_header_style = ParagraphStyle(
+                    'RecommendationHeader',
+                    parent=normal_style,
+                    fontSize=12,
+                    fontName='Helvetica-Bold',
+                    textColor=koombea_green,
+                    spaceBefore=5,
+                    spaceAfter=8,
+                    borderWidth=1,
+                    borderColor=koombea_green,
+                    borderPadding=6,
+                    backColor=colors.Color(0.95, 1.0, 0.95)
+                )
+                
+                header_para = Paragraph(f"Recommendation {rec_number}: {rec_title}", rec_header_style)
+                story.append(header_para)
+                
+            elif paragraph.startswith('-') or paragraph.startswith('•'):
+                # This is a bullet point
+                bullet_style = ParagraphStyle(
+                    'BulletPoint',
+                    parent=normal_style,
+                    fontSize=10,
+                    leftIndent=15,
+                    spaceAfter=4,
+                    bulletIndent=10
+                )
+                clean_text = paragraph[1:].strip()
+                bullet_para = Paragraph(f"• {clean_text}", bullet_style)
+                story.append(bullet_para)
+                
+            else:
+                # Regular paragraph
+                regular_para = Paragraph(paragraph, normal_style)
+                story.append(regular_para)
+                story.append(Spacer(1, 3))
     
     story.append(Spacer(1, 20))
     
-    # Footer
+    # Analysis Details Section
+    details_header = Paragraph("Analysis Details", section_header_style)
+    story.append(details_header)
+    
+    analysis_details = f"""
+    <b>AI Agent Used:</b> {agent.name if agent else 'Unknown'}<br/>
+    <b>Model:</b> {agent.model if agent else 'Unknown'}<br/>
+    <b>Tokens Used:</b> {report.tokens_used:,}<br/>
+    <b>Generation Time:</b> {report.generation_time_seconds:.2f} seconds<br/>
+    <b>Analysis Status:</b> {report.report_status}<br/>
+    """
+    
+    details_para = Paragraph(analysis_details, normal_style)
+    story.append(details_para)
+    story.append(Spacer(1, 20))
+    
+    # Footer section
+    footer_header = Paragraph("Disclaimer", section_header_style)
+    story.append(footer_header)
+    
     footer_text = f"""
     This AI-powered cost analysis report was generated using advanced machine learning algorithms 
     to identify cost optimization opportunities in your AWS infrastructure. The recommendations 
     are based on usage patterns, historical data, and AWS best practices.
     
-    Report generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')} using {agent.name if agent else 'AI Agent'}.
+    Please review all recommendations carefully and test in non-production environments before 
+    implementing changes. Koombea is not responsible for any issues arising from the implementation 
+    of these recommendations.
+    
+    Report generated on {datetime.utcnow().strftime('%d %B %Y at %H:%M UTC')}.
     """
     
-    footer_para = Paragraph(footer_text, styles['Normal'])
+    footer_para = Paragraph(footer_text, normal_style)
     story.append(footer_para)
+    
+    # Version control table
+    story.append(Spacer(1, 30))
+    version_header = Paragraph("Document Version Control", section_header_style)
+    story.append(version_header)
+    
+    version_data = [
+        ['Date', 'Version', 'Created by', 'Description of change'],
+        [report.created_at.strftime('%d %B %Y'), '1.0', owner.name if owner else "AI Agent", 'Initial AI analysis report'],
+    ]
+    
+    version_table = Table(version_data, colWidths=[100, 60, 120, 220])
+    version_table.setStyle(table_style)
+    story.append(version_table)
     
     # Build PDF
     doc.build(story)
